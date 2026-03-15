@@ -191,6 +191,9 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
             <div class="sh-nm" id="sh-nm"></div>
             <button id="id-edit-btn" style="display:none;background:none;border:none;cursor:pointer;font-size:14px;color:var(--muted);padding:0;line-height:1;">✏️</button>
           </div>
+          <div id="sh-id" style="display:none;"></div>
+          <div style="display:none">
+          </div>
           <!-- 인라인 닉네임 수정 영역 (본인만) -->
           <div id="nick-inline-wrap" style="display:none;margin-top:8px;">
             <div style="display:flex;gap:6px;">
@@ -516,8 +519,8 @@ function refreshSheet(){
   const bg=m.cardBg||PRESETS[0];
   $('sh-ava').textContent=m.emoji; $('sh-ava').style.background=bg;
   $('sh-ava-badge').style.display=mine?'flex':'none';
-  $('sh-nm').textContent=m.nick+(m.isOwner?' 👑':'');
-  $('sh-id').textContent=m.id;
+  if($('sh-nm')) $('sh-nm').textContent=m.nick+(m.isOwner?' 👑':'');
+  if($('sh-id')) $('sh-id').textContent=m.id;
   // 저장 버튼: 본인만 표시
   $('save-btn').style.display=mine?'block':'none';
   $('id-edit-btn').style.display=mine?'inline':'none';
