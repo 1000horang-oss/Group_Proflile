@@ -683,18 +683,35 @@ $('id-edit-btn').addEventListener('click',()=>{
 async function saveNickname(newNick){
   if(!newNick?.trim()){toast('닉네임을 입력해주세요');return;}
   newNick=newNick.trim();
+  if(newNick===me){
+    // 닉네임 변경 없으면 그냥 닫기
+    if($('nick-inline-wrap')) $('nick-inline-wrap').style.display='none';
+    return;
+  }
+  // 이미 있는 닉네임인지 확인
+  if(members[newNick]){toast('이미 있는 닉네임이에요');return;}
   const finalId='@'+newNick.toLowerCase().replace(/\s+/g,'');
   const oldNick=me;
   const oldData=members[oldNick]||{};
-  const newData={...oldData,nick:newNick,id:finalId};
-  await set(ref(db,`groups/${gid}/members/${newNick}`),newData);
-  if(oldNick!==newNick) await set(ref(db,`groups/${gid}/members/${oldNick}`),null);
-  me=newNick;
-  // 로컬 그룹 목록 업데이트
-  const idx=myGroups.findIndex(g=>g.gid===gid);
-  if(idx>=0){myGroups[idx].nick=newNick;saveGroups(myGroups);}
-  if($('nick-inline-wrap')) $('nick-inline-wrap').style.display='none';
-  toast('닉네임 변경됐어요! ✅');
+  const newData={...oldData, nick:newNick, id:finalId};
+  try{
+    // 1) 새 닉네임으로 먼저 저장
+    await set(ref(db,`groups/${gid}/members/${newNick}`), newData);
+    // 2) 저장 성공 후에만 기존 닉네임 삭제
+    await set(ref(db,`groups/${gid}/members/${oldNick}`), null);
+    // 3) 로컬 상태 업데이트
+    me=newNick;
+    if(openNick===oldNick) openNick=newNick;
+    const idx=myGroups.findIndex(g=>g.gid===gid);
+    if(idx>=0){myGroups[idx].nick=newNick; saveGroups(myGroups);}
+    if($('nick-inline-wrap')) $('nick-inline-wrap').style.display='none';
+    toast('닉네임 변경됐어요! ✅');
+  }catch(e){
+    // 실패시 새로 만든 것도 정리
+    toast('변경 실패, 다시 시도해주세요');
+    console.error(e);
+    try{ await set(ref(db,`groups/${gid}/members/${newNick}`), null); }catch(e2){}
+  }
 }
 $('nick-inline-save').addEventListener('click',()=>saveNickname($('nick-inline-inp').value));
 $('nick-inline-inp').addEventListener('keydown',e=>{
