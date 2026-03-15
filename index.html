@@ -543,7 +543,7 @@ function renderGroupList() {
   document.querySelectorAll('.group-card').forEach(el => {
     el.addEventListener('click', () => {
       const g = myGroups[+el.dataset.idx];
-      enterMain(g.gid, g.nick);
+      enterMain(g.gid, g.memberKey || myUid, g.nick);
     });
   });
 }
