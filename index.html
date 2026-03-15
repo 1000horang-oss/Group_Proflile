@@ -378,6 +378,10 @@ $('nick-modal-confirm').addEventListener('click',()=>{
 $('nick-modal-inp').addEventListener('keydown',e=>{if(e.key==='Enter')$('nick-modal-confirm').click();});
 
 // ── 새 그룹 ──
+$('btn-create').addEventListener('touchend',e=>{
+  e.preventDefault();
+  e.stopPropagation();
+},{passive:false});
 $('btn-create').addEventListener('click',()=>{
   askNick('새 그룹 만들기','이 그룹에서 사용할 닉네임을 입력하세요',async nick=>{
     const code=genCode(), name=nick+'의 그룹';
@@ -394,11 +398,16 @@ $('btn-create').addEventListener('click',()=>{
 });
 
 // ── 코드 입장 ──
-$('btn-join-show').addEventListener('click',()=>{
+function toggleJoinForm(){
   const f=$('join-form');
   f.style.display=f.style.display==='none'?'block':'none';
-  if(f.style.display==='block') $('code-inp').focus();
-});
+  if(f.style.display==='block') setTimeout(()=>$('code-inp').focus(),100);
+}
+$('btn-join-show').addEventListener('click',toggleJoinForm);
+$('btn-join-show').addEventListener('touchend',e=>{
+  e.preventDefault(); // 300ms 딜레이 방지
+  toggleJoinForm();
+},{passive:false});
 $('join-btn').addEventListener('click',joinGroup);
 $('code-inp').addEventListener('keydown',e=>{if(e.key==='Enter')joinGroup();});
 
