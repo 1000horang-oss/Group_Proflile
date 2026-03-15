@@ -471,8 +471,9 @@ const COLORS = ['#B5D4F4','#9FE1CB','#F4C0D1','#FAC775','#C0DD97','#F5C4B3','#CE
 const MBTI_LIST = ['INTJ','INTP','ENTJ','ENTP','INFJ','INFP','ENFJ','ENFP','ISTJ','ISFJ','ESTJ','ESFJ','ISTP','ISFP','ESTP','ESFP'];
 
 // ── 상태 ──
-let myGroups = [];       // [{gid, gname, nick}]
+let myGroups = [];       // [{gid, gname, nick, memberKey}]
 let myUid = null;        // 이 기기의 고정 UID
+let myMemberKey = null;  // 현재 방에서 내 Firebase 키 (기기마다 다를 수 있음)
 let currentGid = null;   // 현재 방 코드
 let members = {};        // 현재 방 멤버 데이터
 let openUid = null;      // 열려있는 프로필 uid
@@ -582,7 +583,7 @@ $('btn-new-group').addEventListener('click', () => {
     };
     try {
       await set(ref(db, `groups/${code}`), { name, owner: myUid, members: { [myUid]: md } });
-      myGroups.push({ gid: code, gname: name, nick });
+      myGroups.push({ gid: code, gname: name, nick, memberKey: myUid });
       saveGroups();
       pendingEntry = { code, name, nick };
       $('code-display-val').textContent = code;
@@ -616,21 +617,12 @@ async function doJoinGroup() {
 
   // 이미 로컬에 저장된 그룹이면 바로 입장
   const existing = myGroups.find(g => g.gid === code);
-  if (existing) { enterMain(existing.gid, existing.nick); return; }
+  if (existing) { enterMain(existing.gid, existing.memberKey || myUid, existing.nick); return; }
 
   try {
     const snap = await get(ref(db, `groups/${code}`));
     const data = snap.val();
     if (!data) { showToast('그룹을 찾을 수 없어요'); return; }
-
-    // 이 기기 uid로 이미 가입된 경우 → 바로 입장
-    if (data.members && data.members[myUid]) {
-      const m = data.members[myUid];
-      myGroups.push({ gid: code, gname: data.name || code, nick: m.nick });
-      saveGroups();
-      enterMain(code, m.nick);
-      return;
-    }
 
     // 닉네임 입력받기
     askNick(
@@ -639,39 +631,31 @@ async function doJoinGroup() {
       async nick => {
         const allMembers = data.members ? Object.entries(data.members) : [];
 
-        // 같은 닉네임 멤버가 있는지 확인 (다른 기기에서 가입한 경우)
+        // 같은 닉네임 멤버가 있는지 확인 → 기존 프로필 연결
         const sameNick = allMembers.find(([k, v]) => v.nick === nick);
 
         if (sameNick) {
-          const [existingKey, existingData] = sameNick;
-          // 기존 프로필에 현재 uid 연결 (기존 키는 유지하되 uid만 업데이트)
-          // → 현재 기기 uid로 새 키 만들고 기존 키 삭제
-          const merged = { ...existingData, uid: myUid };
-          const updates = { [myUid]: merged };
-          if (existingKey !== myUid) updates[existingKey] = null;
-          await update(ref(db, `groups/${code}/members`), updates);
-          // 방장이었으면 owner도 업데이트
-          if (existingData.isOwner) {
-            await update(ref(db, `groups/${code}`), { owner: myUid });
-          }
-          myGroups.push({ gid: code, gname: data.name || code, nick });
+          // 키 변경 없이 그대로 사용 (Firebase 키 절대 변경 안 함)
+          const [memberKey, memberData] = sameNick;
+          myGroups.push({ gid: code, gname: data.name || code, nick, memberKey });
           saveGroups();
           showToast('기존 프로필로 입장해요 😊');
-          enterMain(code, nick);
+          enterMain(code, memberKey, nick);
         } else {
-          // 완전 새 멤버
+          // 완전 새 멤버 → 새 uid로 키 생성
           const cnt = allMembers.length;
           if (cnt >= 8) { showToast('멤버가 꽉 찼어요 (최대 8명)'); return; }
+          const newKey = genUid();
           const md = {
-            uid: myUid, nick,
+            uid: newKey, nick,
             emoji: EMOJIS[cnt % EMOJIS.length],
             cardBg: COLORS[cnt % COLORS.length],
             mbti: '', location: '', games: '', intro: '', isOwner: false
           };
-          await update(ref(db, `groups/${code}/members`), { [myUid]: md });
-          myGroups.push({ gid: code, gname: data.name || code, nick });
+          await update(ref(db, `groups/${code}/members`), { [newKey]: md });
+          myGroups.push({ gid: code, gname: data.name || code, nick, memberKey: newKey });
           saveGroups();
-          enterMain(code, nick);
+          enterMain(code, newKey, nick);
         }
       }
     );
@@ -694,8 +678,9 @@ $('code-enter-btn').addEventListener('click', () => {
 });
 
 // ── 메인 진입 ──
-function enterMain(code, nick) {
+function enterMain(code, memberKey, nick) {
   currentGid = code;
+  myMemberKey = memberKey; // 이 방에서 내 Firebase 키
   $('join-form').style.display = 'none';
   $('code-inp').value = '';
   joinFormOpen = false;
@@ -717,8 +702,8 @@ function enterMain(code, nick) {
   // 멤버 리스너
   membersListener = onValue(ref(db, `groups/${code}/members`), snap => {
     members = snap.val() || {};
-    const me = members[myUid];
-    const isOwner = me?.isOwner || false;
+    const me = members[myMemberKey];
+    const isOwner = members[myMemberKey]?.isOwner || false;
 
     // 방장 UI
     $('delete-room-btn').style.display = isOwner ? 'block' : 'none';
@@ -732,6 +717,7 @@ function enterMain(code, nick) {
 
 // ← 뒤로가기
 $('back-btn').addEventListener('click', () => {
+  myMemberKey = null;
   detachListeners();
   showScreen('groups');
   renderGroupList();
@@ -739,6 +725,7 @@ $('back-btn').addEventListener('click', () => {
 
 // 나가기 (로컬에서만 제거)
 $('leave-btn').addEventListener('click', () => {
+  myMemberKey = null;
   if (!confirm('이 그룹에서 나가시겠어요?\n목록에서 삭제되지만 코드로 다시 입장할 수 있어요')) return;
   myGroups = myGroups.filter(g => g.gid !== currentGid);
   saveGroups();
@@ -788,7 +775,7 @@ function renderMemberGrid() {
   const grid = $('member-grid');
 
   let html = sorted.map(m => {
-    const isMine = m.uid === myUid;
+    const isMine = m.uid === myMemberKey || Object.keys(members).find(k => k === myMemberKey && members[k] === m);
     const bg = m.cardBg || COLORS[0];
     const tags = [m.mbti, m.location].filter(Boolean);
     const hasDetail = !!(m.games || m.intro);
@@ -854,8 +841,8 @@ function renderMemberGrid() {
     card.addEventListener('contextmenu', e => {
       e.preventDefault();
       const uid = card.dataset.uid;
-      const me = members[myUid];
-      if (!me?.isOwner || uid === myUid) return;
+      const me = members[myMemberKey];
+      if (!me?.isOwner || uid === myMemberKey) return;
       const nick = members[uid]?.nick || '';
       if (confirm(`'${nick}'님을 내보낼까요?`)) {
         set(ref(db, `groups/${currentGid}/members/${uid}`), null)
@@ -870,8 +857,8 @@ function renderMemberGrid() {
       const uid = card.dataset.uid;
       touchTimer = setTimeout(() => {
         if (!touchMoved) {
-          const me = members[myUid];
-          if (me?.isOwner && uid !== myUid) {
+          const me = members[myMemberKey];
+          if (me?.isOwner && uid !== myMemberKey) {
             const nick = members[uid]?.nick || '';
             if (confirm(`'${nick}'님을 내보낼까요?`)) {
               set(ref(db, `groups/${currentGid}/members/${uid}`), null)
@@ -924,7 +911,7 @@ function openProfile(uid) {
 
 function refreshSheet() {
   const m = members[openUid]; if (!m) return;
-  const isMine = m.uid === myUid;
+  const isMine = m.uid === myMemberKey || Object.keys(members).find(k => k === myMemberKey && members[k] === m);
   const bg = m.cardBg || COLORS[0];
   $('sheet-ava').textContent = m.emoji;
   $('sheet-ava').style.background = bg;
@@ -954,7 +941,7 @@ function saveDraft() {
 
 function renderSheetTab() {
   const m = members[openUid]; if (!m) return;
-  const isMine = m.uid === myUid;
+  const isMine = m.uid === myMemberKey || Object.keys(members).find(k => k === myMemberKey && members[k] === m);
   let html = '';
   if (currentTab === 0) {
     if (isMine) {
@@ -987,7 +974,7 @@ function viewRow(label, val) {
 // 저장
 $('sheet-save-btn').addEventListener('click', () => {
   saveDraft();
-  update(ref(db, `groups/${currentGid}/members/${openUid}`), {
+  update(ref(db, `groups/${currentGid}/members/${myMemberKey}`), {
     mbti: draft.mbti, location: draft.location, games: draft.games, intro: draft.intro
   }).then(() => showToast('저장됐어요! ✅')).catch(() => showToast('저장에 실패했어요'));
 });
@@ -1012,7 +999,7 @@ async function saveNick() {
   const newNick = $('sheet-nick-inp').value.trim();
   if (!newNick) { showToast('닉네임을 입력해주세요'); return; }
   // uid 기반이라 그냥 update 하면 됨. 키 변경 없음!
-  await update(ref(db, `groups/${currentGid}/members/${myUid}`), { nick: newNick });
+  await update(ref(db, `groups/${currentGid}/members/${myMemberKey}`), { nick: newNick });
   const idx = myGroups.findIndex(g => g.gid === currentGid);
   if (idx >= 0) { myGroups[idx].nick = newNick; saveGroups(); }
   $('sheet-nick-form').style.display = 'none';
@@ -1028,8 +1015,8 @@ $('sheet-nick-cancel').addEventListener('click', () => { $('sheet-nick-form').st
 
 // ── 꾸미기 피커 ──
 $('sheet-ava-btn').addEventListener('click', () => {
-  if (openUid !== myUid) return;
-  const m = members[myUid];
+  if (openUid !== myMemberKey) return;
+  const m = members[myMemberKey];
   pickerEmoji = m.emoji;
   pickerColor = m.cardBg || COLORS[0];
   buildEmojiGrid();
@@ -1077,7 +1064,7 @@ function updatePickerPreview() {
 }
 
 $('picker-apply').addEventListener('click', () => {
-  update(ref(db, `groups/${currentGid}/members/${myUid}`), { emoji: pickerEmoji, cardBg: pickerColor })
+  update(ref(db, `groups/${currentGid}/members/${myMemberKey}`), { emoji: pickerEmoji, cardBg: pickerColor })
     .then(() => showToast('꾸미기 적용됐어요! ✅'));
   $('picker-wrap').classList.remove('show');
 });
