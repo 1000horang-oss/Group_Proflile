@@ -585,7 +585,7 @@ $('btn-new-group').addEventListener('click', () => {
       await set(ref(db, `groups/${code}`), { name, owner: myUid, members: { [myUid]: md } });
       myGroups.push({ gid: code, gname: name, nick, memberKey: myUid });
       saveGroups();
-      pendingEntry = { code, name, nick };
+      pendingEntry = { code, name, nick, memberKey: myUid };
       $('code-display-val').textContent = code;
       $('code-modal').classList.add('show');
     } catch (e) { showToast('오류가 발생했어요. 다시 시도해주세요.'); }
@@ -674,7 +674,7 @@ $('code-copy-btn').addEventListener('click', () => {
 });
 $('code-enter-btn').addEventListener('click', () => {
   $('code-modal').classList.remove('show');
-  if (pendingEntry) { enterMain(pendingEntry.code, pendingEntry.nick); pendingEntry = null; }
+  if (pendingEntry) { enterMain(pendingEntry.code, pendingEntry.memberKey || myUid, pendingEntry.nick); pendingEntry = null; }
 });
 
 // ── 메인 진입 ──
